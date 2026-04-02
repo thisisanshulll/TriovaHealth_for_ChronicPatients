@@ -1,0 +1,43 @@
+{
+  "name": "triova-health",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "services/shared",
+    "services/gateway",
+    "frontend"
+  ],
+  "scripts": {
+    "build": "npm run build -w @triova/shared && npm run build -w @triova/gateway && npm run build -w triova-frontend",
+    "dev": "concurrently -n api,web \"npm run dev -w @triova/gateway\" \"npm run dev -w triova-frontend\"",
+    "dev:api": "npm run dev -w @triova/gateway",
+    "dev:web": "npm run dev -w triova-frontend",
+    "typecheck": "npm run typecheck -w @triova/shared && npm run typecheck -w @triova/gateway && npm run typecheck -w triova-frontend",
+    "lint": "eslint . --ext .ts,.tsx",
+    "test": "vitest run",
+    "migrate": "node-pg-migrate up --migrations-dir services/shared/db/migrations --schema public",
+    "migrate:down": "node-pg-migrate down --migrations-dir services/shared/db/migrations",
+    "seed": "tsx scripts/seed.ts",
+    "setup-qdrant": "tsx scripts/setup-qdrant.ts",
+    "generate-wearable": "tsx scripts/generate-wearable-data.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "bcryptjs": "^2.4.3",
+    "concurrently": "^8.2.2",
+    "dotenv": "^16.3.1",
+    "eslint": "^8.56.0",
+    "node-pg-migrate": "^7.6.1",
+    "pg": "^8.11.3",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.2",
+    "yargs": "^18.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "vite": "8.0.3"
+  }
+}
