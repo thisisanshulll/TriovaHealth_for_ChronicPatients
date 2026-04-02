@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, CalendarDays, Clock3, RefreshCw, Stethoscope } from 'lucide-react';
+import { AlertTriangle, CalendarDays, Clock3, RefreshCw, Stethoscope, ExternalLink } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { ApiError, api } from '@/api/axios-instance';
 import { SectionCard } from '@/components/ui/SectionCard';
@@ -78,6 +78,14 @@ export default function DoctorDashboard() {
   const [message, setMessage] = useState('');
   const [busyKey, setBusyKey] = useState('');
 
+  if (!doctorId) {
+    return (
+      <div className="p-6">
+        <p className="text-red-500">Doctor ID not found (got: {doctorId}). Please login again.</p>
+      </div>
+    );
+  }
+
   const socket = useSocket(); // <-- GET SOCKET
 
   // --- Real-time crisis simulation ---
@@ -148,23 +156,30 @@ export default function DoctorDashboard() {
   }, [socket]);
   // ------------------------------------
 
-
   const view = searchParams.get('view') === 'patients' ? 'patients' : searchParams.get('view') === 'schedule' ? 'schedule' : 'overview';
 
   const dashboardQuery = useQuery({
     queryKey: ['doctor-dashboard', doctorId],
     enabled: !!doctorId,
+    refetchInterval: 15000,
+    staleTime: 0,
     queryFn: async () => {
+      console.log('Fetching dashboard for doctor:', doctorId);
       const res = await api.get<DoctorDashboardData>(`/analytics/doctor/${doctorId}/dashboard`);
+      console.log('Dashboard response:', res.data);
       return res.data;
     },
   });
 
   const scheduleQuery = useQuery({
     queryKey: ['doctor-schedule', doctorId, selectedDate],
-    enabled: !!doctorId,
+    enabled: !!doctorId && !!selectedDate,
+    refetchInterval: 5000,
+    staleTime: 0,
     queryFn: async () => {
+      console.log('Fetching schedule for doctor:', doctorId, 'date:', selectedDate);
       const res = await api.get<DoctorScheduleData>(`/appointments/doctor/${doctorId}?date=${selectedDate}`);
+      console.log('Schedule response:', res.data);
       return res.data;
     },
   });
@@ -179,6 +194,31 @@ export default function DoctorDashboard() {
   );
 
   const criticalAlerts = (dashboardQuery.data?.recent_alerts || []).filter((alert) => alert.severity === 'critical');
+
+  const [googleCalConnected, setGoogleCalConnected] = useState(false);
+
+  const googleStatusQuery = useQuery({
+    queryKey: ['google-calendar-status'],
+    queryFn: async () => {
+      const res = await api.get<{ connected: boolean }>('/auth/google/status');
+      return res.data.connected;
+    },
+  });
+
+  useMemo(() => {
+    if (googleStatusQuery.data !== undefined) {
+      setGoogleCalConnected(googleStatusQuery.data);
+    }
+  }, [googleStatusQuery.data]);
+
+  async function connectGoogleCalendar() {
+    try {
+      const res = await api.get<{ url: string; state: string }>('/auth/google');
+      window.location.href = res.data.url;
+    } catch (error) {
+      console.error('Failed to get Google auth URL:', error);
+    }
+  }
 
   const queueColumns = [
     { key: 'emergency', label: 'Emergency', tone: 'border-red-200 bg-red-50' },
@@ -284,6 +324,47 @@ export default function DoctorDashboard() {
         </div>
       )}
 
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <StatCard
+          label="Assigned patients"
+          value={dashboardQuery.data?.stats.total_patients ?? '-'}
+          icon={<Stethoscope size={18} />}
+          hint="Active doctor-patient assignments"
+        />
+        <StatCard
+          label="Queue size"
+          value={allQueue || '-'}
+          icon={<Clock3 size={18} />}
+          hint="Emergency, urgent, routine combined"
+        />
+        <StatCard
+          label="Appointments today"
+          value={dashboardQuery.data?.stats.appointments_today ?? '-'}
+          icon={<CalendarDays size={18} />}
+          hint={formatDate(selectedDate)}
+        />
+        <StatCard
+          label="Active alerts"
+          value={dashboardQuery.data?.stats.active_alerts ?? '-'}
+          icon={<AlertTriangle size={18} />}
+          hint="Across all assigned patients"
+        />
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold text-slate-500">Google Calendar</p>
+          <p className="mt-1 text-sm text-slate-700">{googleCalConnected ? 'Connected' : 'Not connected'}</p>
+          {!googleCalConnected && (
+            <button
+              type="button"
+              onClick={connectGoogleCalendar}
+              className="mt-2 inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+            >
+              <ExternalLink size={12} />
+              Connect
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* NEW: Weekly Triage Reports */}
       {triageReports.length > 0 && (
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -342,34 +423,6 @@ export default function DoctorDashboard() {
           </div>
         </div>
       )}
-
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Assigned patients"
-          value={dashboardQuery.data?.stats.total_patients ?? '-'}
-          icon={<Stethoscope size={18} />}
-          hint="Active doctor-patient assignments"
-        />
-        <StatCard
-          label="Queue size"
-          value={allQueue || '-'}
-          icon={<Clock3 size={18} />}
-          hint="Emergency, urgent, routine combined"
-        />
-        <StatCard
-          label="Appointments today"
-          value={dashboardQuery.data?.stats.appointments_today ?? '-'}
-          icon={<CalendarDays size={18} />}
-          hint={formatDate(selectedDate)}
-        />
-        <StatCard
-          label="Active alerts"
-          value={dashboardQuery.data?.stats.active_alerts ?? '-'}
-          icon={<AlertTriangle size={18} />}
-          hint="Across all assigned patients"
-        />
-      </div>
 
       {message && <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">{message}</div>}
 
@@ -441,6 +494,11 @@ export default function DoctorDashboard() {
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none transition focus:border-triova-500"
               />
             </label>
+            {scheduleQuery.isLoading && <p className="text-sm text-slate-500">Loading...</p>}
+            {scheduleQuery.isError && <p className="text-sm text-red-500">Error loading schedule</p>}
+            {scheduleQuery.data?.appointments?.length === 0 && (
+              <p className="text-sm text-slate-500">No appointments on this date.</p>
+            )}
             <div className="space-y-3">
               {(scheduleQuery.data?.appointments || []).map((appointment) => (
                 <div key={appointment.id} className="rounded-xl border border-slate-200 p-3">

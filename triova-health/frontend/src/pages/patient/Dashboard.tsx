@@ -8,7 +8,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { StatCard } from '@/components/ui/StatCard';
 import { UrgencyBadge } from '@/components/ui/UrgencyBadge';
-import { formatDate, formatDateTime, formatTime } from '@/lib/format';
+import { formatDate, formatTime } from '@/lib/format';
 import type { Appointment, NotificationItem } from '@/types/domain';
 
 // ─── Live vitals simulation ────────────────────────────────────────────────
@@ -193,13 +193,23 @@ export default function PatientDashboard() {
     queryKey: ['patient-reminders', patientId],
     enabled: !!patientId,
     queryFn: async () => {
-      const res = await api.get<{ reminders: Array<{ id: string; medication: string; time: string; is_active: boolean }> }>(
-        `/notifications/reminders/${patientId}`
+      const res = await api.get<{ medications: Array<{ id: string; medication_name: string; dosage: string; frequency: string; timing_instructions: string; start_date: string; end_date: string; is_active: boolean }>; reminders: Array<{ id: string; medication_id: string; reminder_time: string; is_active: boolean; medication_name: string }> }>(
+        `/medications/patient/${patientId}`
       );
       return res.data;
     },
   });
 
+  const dash          = dashboardQuery.data;
+  const upcoming      = appointmentsQuery.data?.upcoming || [];
+  const reminders     = (remindersQuery.data?.reminders || []).map((r) => ({
+    id: r.id,
+    medication: r.medication_name,
+    time: r.reminder_time,
+    is_active: r.is_active,
+  }));
+  
+  // Triage history and notifications were missing in Anshul's branch, restoring them
   const triageHistoryQuery = useQuery({
     queryKey: ['patient-triage-history', patientId],
     enabled: !!patientId,
@@ -222,9 +232,6 @@ export default function PatientDashboard() {
     },
   });
 
-  const dash          = dashboardQuery.data;
-  const upcoming      = appointmentsQuery.data?.upcoming || [];
-  const reminders     = remindersQuery.data?.reminders || [];
   const triageSessions = triageHistoryQuery.data?.sessions || [];
   const notifications = notificationsQuery.data?.notifications || [];
   const trendSeries   = dash?.last_7_days || [];
@@ -448,43 +455,6 @@ export default function PatientDashboard() {
                 </div>
               ))}
               {!reminders.length && <p className="text-sm text-slate-500">No active reminders.</p>}
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Recent triage sessions" subtitle="Latest urgency and summary">
-            <div className="space-y-3">
-              {triageSessions.map((session) => (
-                <div key={session.id} className="rounded-xl border border-slate-200 p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-500">{formatDateTime(session.created_at)}</p>
-                    <UrgencyBadge value={session.urgency_level} />
-                  </div>
-                  <p className="text-sm font-medium text-slate-900">{session.chief_complaint || 'Triage session'}</p>
-                  <p className="mt-1 line-clamp-2 text-xs text-slate-600">{session.ai_summary || 'Summary pending'}</p>
-                </div>
-              ))}
-              {!triageSessions.length && <p className="text-sm text-slate-500">No triage sessions yet.</p>}
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            title="Recent notifications"
-            subtitle="Alerts, reminders, and updates"
-            right={
-              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                <Bell size={12} />
-                {notificationsQuery.data?.unread_count || 0}
-              </span>
-            }
-          >
-            <div className="space-y-2">
-              {notifications.map((note) => (
-                <div key={note.id} className="rounded-xl bg-slate-50 px-3 py-2">
-                  <p className="text-sm font-medium text-slate-900">{note.title}</p>
-                  <p className="text-xs text-slate-600">{note.message}</p>
-                </div>
-              ))}
-              {!notifications.length && <p className="text-sm text-slate-500">No notifications yet.</p>}
             </div>
           </SectionCard>
         </div>

@@ -19,12 +19,14 @@ import authRoutes from './auth/routes/auth.routes.js';
 import appointmentRoutes from './appointments/routes/appointment.routes.js';
 import triageRoutes from './triage/routes/triage.routes.js';
 import recordsRoutes from './medical-records/routes/records.routes.js';
+import extractMedicationRoutes from './medical-records/routes/extract-medications.routes.js';
 import analyticsRoutes from './analytics/routes/analytics.routes.js';
 import notificationsRoutes from './notifications/routes/notifications.routes.js';
 import wearablesRoutes from './wearables/routes/wearables.routes.js';
 import patientsRoutes from './patients/routes/patients.routes.js';
 import doctorsRoutes from './doctors/routes/doctors.routes.js';
 import consultationsRoutes from './doctors/routes/consultations.routes.js';
+import medicationRoutes from './medications/routes/medication.routes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoEnvPath = path.resolve(__dirname, '../../../.env');
@@ -59,12 +61,14 @@ app.use('/api/auth', authRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/triage', triageRoutes);
 app.use('/api/medical-records', recordsRoutes);
+app.use('/api/medical-records', extractMedicationRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/wearables', wearablesRoutes);
 app.use('/api/patients', patientsRoutes);
 app.use('/api/doctors', doctorsRoutes);
 app.use('/api/consultations', consultationsRoutes);
+app.use('/api/medications', medicationRoutes);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
@@ -95,23 +99,44 @@ if (process.env.ENABLE_CRON_JOBS !== 'false') {
     }
   }).start();
 
-  new CronJob('*/30 * * * *', async () => {
-    /* medication reminders — notify patients */
+  new CronJob('*/5 * * * *', async () => {
+    /* medication reminders — notify patients every 5 minutes */
+    const now = new Date();
+    const currentHour = String(now.getHours()).padStart(2, '0');
+    const currentMinute = String(now.getMinutes()).padStart(2, '0');
+    const currentTime = `${currentHour}:${currentMinute}:00`;
+    
     const r = await pool.query(
-      `SELECT mr.*, pm.medication_name, pm.is_active AS med_active, pm.end_date, p.user_id
+      `SELECT mr.id, mr.medication_id, mr.reminder_time, pm.medication_name, pm.is_active AS med_active, pm.end_date, pm.dosage, pm.timing_instructions, p.user_id
        FROM medication_reminders mr
        JOIN patient_medications pm ON pm.id = mr.medication_id
        JOIN patients p ON p.id = mr.patient_id
-       WHERE mr.is_active = true`
+       WHERE mr.is_active = true AND pm.is_active = true
+       AND mr.reminder_time >= '${currentTime}:00'::time
+       AND mr.reminder_time < '${currentTime}:00'::time + interval '5 minutes'
+       AND (mr.last_sent_at IS NULL OR mr.last_sent_at < NOW() - interval '5 hours')`
     );
+    
+    logger.info(`Checking medication reminders at ${currentTime}, found ${r.rows.length} due`);
+    
     for (const row of r.rows) {
-      if (!row.med_active) continue;
       if (row.end_date && new Date(row.end_date) < new Date()) continue;
+      
+      const timingMsg = row.timing_instructions ? ` (${row.timing_instructions})` : '';
+      const dosageMsg = row.dosage ? ` - ${row.dosage}` : '';
+      
       await pool.query(
         `INSERT INTO notifications (user_id, notification_type, title, message, sent_at)
-         VALUES ($1,'medication',$2,$3,NOW())`,
-        [row.user_id, 'Medication reminder', `Time to take ${row.medication_name}`]
+         VALUES ($1, 'medication', $2, $3, NOW())`,
+        [row.user_id, '💊 Medication Reminder', `Time to take ${row.medication_name}${dosageMsg}${timingMsg}`]
       );
+      
+      await pool.query(
+        `UPDATE medication_reminders SET last_sent_at = NOW() WHERE id = $1`,
+        [row.id]
+      );
+      
+      logger.info(`Sent medication reminder for ${row.medication_name} to user ${row.user_id}`);
     }
   }).start();
 }
