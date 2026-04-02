@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, CalendarDays, Clock3, RefreshCw, Stethoscope } from 'lucide-react';
@@ -9,6 +9,7 @@ import { StatCard } from '@/components/ui/StatCard';
 import { UrgencyBadge } from '@/components/ui/UrgencyBadge';
 import { formatDate, formatTime } from '@/lib/format';
 import { useAuthStore } from '@/store/auth.store';
+import { useSocket } from '@/hooks/useSocket';
 
 interface QueuePatient {
   id: string;
@@ -76,6 +77,77 @@ export default function DoctorDashboard() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
   const [message, setMessage] = useState('');
   const [busyKey, setBusyKey] = useState('');
+
+  const socket = useSocket(); // <-- GET SOCKET
+
+  // --- Real-time crisis simulation ---
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [liveCrisis, setLiveCrisis] = useState<any>(null);
+  const [localSpikes, setLocalSpikes] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleEmergencyUpdate = (payload: any) => {
+      if (payload.active && Date.now() - payload.timestamp < 10000) {
+        setLiveCrisis(payload);
+        
+        setLocalSpikes((prev) => {
+          const exists = prev.some((s) => s.patientId === payload.patientId && Date.now() - s.timestamp < 90000);
+          if (!exists) {
+            return [
+              {
+                id: crypto.randomUUID(),
+                patientId: payload.patientId,
+                patientName: payload.patientName,
+                timestamp: Date.now(),
+                message: `Critical vitals spike: HR ${payload.vitals.hr} bpm, SpO2 ${payload.vitals.spo2}%, BP ${payload.vitals.systolic}/${payload.vitals.diastolic}`,
+              },
+              ...prev
+            ];
+          }
+          return prev;
+        });
+
+      } else {
+        setLiveCrisis(null);
+      }
+    };
+
+    socket.on('emergency_vitals_update', handleEmergencyUpdate);
+
+    return () => {
+      socket.off('emergency_vitals_update', handleEmergencyUpdate);
+    };
+  }, [socket]);
+
+  // --- Triage summary notifications ---
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [triageReports, setTriageReports] = useState<any[]>([]);
+  const [expandedSoap, setExpandedSoap] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleTriageSummary = (payload: any) => {
+      setTriageReports((prev) => {
+        const already = prev.some((r) => r.session_id === payload.session_id);
+        if (already) return prev;
+        // Sort: CRITICAL first
+        const order: Record<string, number> = { CRITICAL: 0, HIGH: 1, MODERATE: 2, LOW: 3 };
+        return [...prev, payload].sort(
+          (a, b) => (order[a.risk_level] ?? 4) - (order[b.risk_level] ?? 4)
+        );
+      });
+    };
+
+    socket.on('triage_summary_ready', handleTriageSummary);
+    return () => { socket.off('triage_summary_ready', handleTriageSummary); };
+  }, [socket]);
+  // ------------------------------------
+
 
   const view = searchParams.get('view') === 'patients' ? 'patients' : searchParams.get('view') === 'schedule' ? 'schedule' : 'overview';
 
@@ -151,7 +223,52 @@ export default function DoctorDashboard() {
 
   return (
     <div className="space-y-6">
-      {criticalAlerts.length > 0 && (
+      {liveCrisis && (
+        <div className="rounded-3xl border-2 border-red-500 bg-[#fcebeb] p-6 shadow-2xl transition-all duration-300">
+          <div className="flex items-center justify-between">
+            <p className="flex items-center gap-3 text-xl font-bold text-red-900">
+              <span className="flex h-10 w-10 animate-pulse items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-500/40">
+                <AlertTriangle size={24} />
+              </span>
+              SMARTWATCH EMERGENCY ALERT
+            </p>
+            <span className="rounded-xl bg-red-600 px-4 py-1.5 text-sm font-black tracking-wide text-white shadow-md">
+              IMMEDIATE ATTENTION REQUIRED
+            </span>
+          </div>
+          <p className="mt-3 text-lg font-medium text-red-900 border-l-4 border-red-500 pl-4 py-1">
+            Patient <strong className="font-extrabold">{liveCrisis.patientName}</strong>'s vitals have crossed critical thresholds.
+          </p>
+          
+          <div className="mt-4 flex flex-wrap gap-4 rounded-2xl border border-red-300 bg-red-200/40 p-4">
+            <div className="flex flex-col">
+              <span className="text-xs font-bold uppercase tracking-wider text-red-800">Heart Rate</span>
+              <span className="text-2xl font-black text-red-900">{liveCrisis.vitals.hr} <span className="text-base font-bold">bpm</span></span>
+            </div>
+            <div className="h-10 w-px bg-red-300"></div>
+            <div className="flex flex-col">
+              <span className="text-xs font-bold uppercase tracking-wider text-red-800">SpO2</span>
+              <span className="text-2xl font-black text-red-900">{liveCrisis.vitals.spo2} <span className="text-base font-bold">%</span></span>
+            </div>
+            <div className="h-10 w-px bg-red-300"></div>
+            <div className="flex flex-col">
+              <span className="text-xs font-bold uppercase tracking-wider text-red-800">Blood Pressure</span>
+              <span className="text-2xl font-black text-red-900">{liveCrisis.vitals.systolic}/{liveCrisis.vitals.diastolic}</span>
+            </div>
+          </div>
+          
+          <div className="mt-5 flex gap-3">
+            <Link to={`/doctor/patients/${liveCrisis.patientId || 'patient-123'}`} className="rounded-xl bg-red-600 px-6 py-2.5 font-bold text-white shadow border border-red-700 hover:bg-red-700 transition">
+              View Patient Chart
+            </Link>
+            <button className="rounded-xl bg-white border border-red-400 px-6 py-2.5 font-bold text-red-800 shadow-sm hover:bg-red-50 hover:border-red-500 transition">
+              Dispatch Ambulance
+            </button>
+          </div>
+        </div>
+      )}
+
+      {criticalAlerts.length > 0 && !liveCrisis && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
           <p className="flex items-center gap-2 text-sm font-semibold text-red-900">
             <AlertTriangle size={16} />
@@ -166,6 +283,66 @@ export default function DoctorDashboard() {
           </div>
         </div>
       )}
+
+      {/* NEW: Weekly Triage Reports */}
+      {triageReports.length > 0 && (
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-bold text-slate-900 mb-4">Weekly Triage Reports</h2>
+          <div className="grid gap-4 md:grid-cols-2">
+            {triageReports.map((report) => {
+              const bg = report.risk_level === 'CRITICAL' ? 'bg-[#E24B4A] text-white' :
+                         report.risk_level === 'HIGH' ? 'bg-[#D85A30] text-white' :
+                         report.risk_level === 'MODERATE' ? 'bg-[#EF9F27] text-slate-900' :
+                         'bg-[#1D9E75] text-white';
+              
+              return (
+                <div key={report.session_id} className="rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                  <div className={`px-4 py-3 flex justify-between items-center ${bg}`}>
+                    <div>
+                      <p className="font-bold">{report.patient_name}</p>
+                      <p className="text-xs opacity-90 capitalize text-inherit">{report.disease} check-in</p>
+                    </div>
+                    <span className="text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded bg-white/20">
+                      {report.risk_level} RISK
+                    </span>
+                  </div>
+                  <div className="p-4 space-y-3 bg-slate-50">
+                    {report.key_concerns?.length > 0 && (
+                      <div>
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Key concerns</p>
+                        <ul className="text-sm text-slate-700 space-y-1">
+                          {report.key_concerns.map((c: string, i: number) => (
+                            <li key={i} className="flex gap-1.5"><span className="text-red-400">•</span> {c}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    <div>
+                      <button
+                        onClick={() => setExpandedSoap(expandedSoap === report.session_id ? null : report.session_id)}
+                        className="text-xs font-bold text-triova-700 hover:text-triova-900"
+                      >
+                        {expandedSoap === report.session_id ? 'Hide full summary ▲' : 'View full summary ▼'}
+                      </button>
+                      {expandedSoap === report.session_id && report.soap && (
+                        <div className="mt-2 space-y-2 rounded-xl bg-white border border-slate-200 p-3 text-xs text-slate-700">
+                          {Object.entries(report.soap).map(([key, value]) => (
+                            <div key={key}>
+                              <p className="font-bold text-slate-500 uppercase">{key}</p>
+                              <p>{value as string}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
@@ -325,6 +502,23 @@ export default function DoctorDashboard() {
 
           <SectionCard title="Recent alerts" subtitle="Acknowledge or resolve active alerts">
             <div className="space-y-3">
+              {/* Render locally persisted live crisis spikes */}
+              {localSpikes.map((spike) => (
+                <div key={spike.id} className="rounded-xl border border-red-200 bg-red-50 p-3 shadow-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-bold text-red-900">
+                      {spike.patientName}
+                    </p>
+                    <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-bold text-red-800 border border-red-200">
+                      Smartwatch Spike
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs font-medium text-red-800">{spike.message}</p>
+                  <p className="mt-2 text-[11px] font-semibold text-red-700">{formatTime(new Date(spike.timestamp).toISOString())} (auto-recorded)</p>
+                </div>
+              ))}
+
+              {/* Render standard DB alerts */}
               {(dashboardQuery.data?.recent_alerts || []).slice(0, 8).map((alert) => (
                 <div key={alert.id} className="rounded-xl border border-slate-200 p-3">
                   <div className="flex items-center justify-between gap-2">
@@ -359,7 +553,7 @@ export default function DoctorDashboard() {
                   )}
                 </div>
               ))}
-              {!dashboardQuery.data?.recent_alerts.length && <p className="text-sm text-slate-500">No active alerts.</p>}
+              {!dashboardQuery.data?.recent_alerts.length && !localSpikes.length && <p className="text-sm text-slate-500">No active alerts.</p>}
             </div>
           </SectionCard>
         </div>

@@ -5,3 +5,8 @@
 body {
   @apply bg-slate-50 text-slate-900 antialiased;
 }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}

@@ -8,42 +8,33 @@ export interface TriageQuestion {
 }
 
 export const QUESTION_BANK: Record<string, TriageQuestion[]> = {
-  heart: [
-    { key: 'chest_pain', text_en: 'Are you experiencing chest pain or discomfort?', type: 'yes_no', is_critical: true },
-    { key: 'pain_duration', text_en: 'How long have you had this chest pain?', type: 'duration' },
-    { key: 'pain_radiation', text_en: 'Does the pain spread to your arm, jaw, neck, or back?', type: 'yes_no', is_critical: true },
-    { key: 'shortness_of_breath', text_en: 'Are you short of breath?', type: 'yes_no', is_critical: true },
-    { key: 'sweating_nausea', text_en: 'Are you sweating or feeling nauseous?', type: 'yes_no' },
-    { key: 'heart_history', text_en: 'Do you have a history of heart disease or heart attack?', type: 'yes_no' },
-    { key: 'current_medications', text_en: 'Are you taking any heart medications? If yes, which ones?', type: 'text' },
+  diabetes: [
+    { key: 'glucose', text_en: 'What was your fasting blood sugar reading this morning?', type: 'text' },
+    { key: 'hypo', text_en: 'Did you experience any dizziness, sweating, or shakiness that felt like low sugar?', type: 'yes_no' },
+    { key: 'diet', text_en: 'How well did you follow your diabetes diet plan this week (1-10)?', type: 'scale' },
+    { key: 'medication', text_en: 'Did you take all your diabetes medications on time this week?', type: 'yes_no' },
+    { key: 'foot', text_en: 'Any tingling, numbness, or pain in your feet or legs?', type: 'yes_no' },
   ],
-  respiratory: [
-    { key: 'breathing_difficulty', text_en: 'Are you having difficulty breathing right now?', type: 'yes_no', is_critical: true },
-    { key: 'breathing_severity', text_en: 'On a scale of 1 to 10, how severe is your breathing difficulty?', type: 'scale' },
-    {
-      key: 'cough_type',
-      text_en: 'Do you have a cough? Is it dry or productive?',
-      type: 'choice',
-      choices: ['No cough', 'Dry cough', 'Wet/productive cough', 'Coughing blood'],
-    },
-    { key: 'onset_duration', text_en: 'When did your breathing problems start?', type: 'duration' },
-    { key: 'fever', text_en: 'Do you have a fever?', type: 'yes_no' },
-    { key: 'asthma_history', text_en: 'Do you have asthma, COPD, or chronic lung disease?', type: 'yes_no' },
-    { key: 'inhaler_use', text_en: 'Have you used an inhaler or nebulizer? Did it help?', type: 'text' },
+  hypertension: [
+    { key: 'bp_reading', text_en: 'What was your most recent blood pressure reading?', type: 'text' },
+    { key: 'headache', text_en: 'Did you have any headaches, especially at the back of your head?', type: 'yes_no' },
+    { key: 'medication', text_en: 'Did you take your blood pressure medication every day without missing a dose?', type: 'yes_no' },
+    { key: 'salt', text_en: 'How would you rate your salt intake this week (Low/Moderate/High)?', type: 'choice', choices: ['Low', 'Moderate', 'High'] },
+    { key: 'vision', text_en: 'Any blurred vision or chest discomfort this week?', type: 'yes_no' },
   ],
-  digestive: [
-    { key: 'pain_location', text_en: 'Where exactly is your stomach pain?', type: 'text' },
-    { key: 'pain_severity', text_en: 'Rate your pain from 1 to 10', type: 'scale' },
-    { key: 'nausea_vomiting', text_en: 'Are you experiencing nausea or vomiting?', type: 'yes_no' },
-    { key: 'blood_in_stool', text_en: 'Any blood in stool or vomit?', type: 'yes_no', is_critical: true },
-    { key: 'last_meal', text_en: 'When did you last eat, and what did you have?', type: 'text' },
+  copd: [
+    { key: 'breathlessness', text_en: 'On a scale of 1 to 10, how much breathlessness did you feel doing daily activities?', type: 'scale' },
+    { key: 'inhaler', text_en: 'How many times did you need to use your rescue inhaler this week?', type: 'text' },
+    { key: 'spo2', text_en: 'What was your most recent oxygen (SpO2) reading?', type: 'text' },
+    { key: 'cough', text_en: 'Has your cough gotten worse or the mucus color changed?', type: 'yes_no' },
+    { key: 'sleep', text_en: 'Could you sleep lying flat, or did you need extra pillows for breathing?', type: 'yes_no' },
   ],
-  neurological: [
-    { key: 'headache_severity', text_en: 'Rate headache 1–10. Worst headache of your life?', type: 'scale', is_critical: true },
-    { key: 'sudden_onset', text_en: 'Did the headache come on suddenly (thunderclap)?', type: 'yes_no', is_critical: true },
-    { key: 'vision_changes', text_en: 'Any vision changes or loss?', type: 'yes_no', is_critical: true },
-    { key: 'weakness_numbness', text_en: 'Weakness or numbness in face, arm, or leg?', type: 'yes_no', is_critical: true },
-    { key: 'speech_difficulty', text_en: 'Difficulty speaking?', type: 'yes_no', is_critical: true },
+  heart_failure: [
+    { key: 'weight', text_en: 'What is your weight today? Any sudden gain (>1kg in a day)?', type: 'text' },
+    { key: 'swelling', text_en: 'Any swelling in your ankles, feet, or legs?', type: 'yes_no' },
+    { key: 'fatigue', text_en: 'How much fatigue did you feel doing simple tasks like walking (1-10)?', type: 'scale' },
+    { key: 'orthopnea', text_en: 'Did you wake up at night feeling breathless or need more pillows?', type: 'yes_no' },
+    { key: 'medication', text_en: 'Did you take all your heart medications, including water pills, every day?', type: 'yes_no' },
   ],
   general: [
     { key: 'main_complaint', text_en: 'Describe your main problem in your own words', type: 'text' },

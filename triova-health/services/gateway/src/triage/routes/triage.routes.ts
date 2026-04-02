@@ -15,7 +15,12 @@ router.use(apiRateLimit);
 router.post('/start', roleMiddleware('patient'), async (req: AuthedRequest, res, next) => {
   try {
     res.json(
-      await svc.startTriage(req.user!.patientId!, req.body.chief_complaint, req.body.language || 'en')
+      await svc.startTriage(
+        req.user!.patientId!, 
+        req.body.chief_complaint, 
+        req.body.language || 'en',
+        req.body.condition_category
+      )
     );
   } catch (e) {
     next(e);
@@ -116,4 +121,49 @@ router.get('/active/:patient_id', roleMiddleware('patient'), async (req: AuthedR
   }
 });
 
+// NEW: Generate SOAP clinical summary via Groq and notify doctor via socket
+router.post('/generate-summary', roleMiddleware('patient'), async (req: AuthedRequest, res, next) => {
+  try {
+    const result = await svc.generateSoapSummary(
+      req.body.session_id,
+      req.user!.patientId!
+    );
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// NEW: Demo trigger — manually schedule triage for all active patients
+router.post('/schedule-trigger', async (req: AuthedRequest, res, next) => {
+  try {
+    const { pool } = await import('@triova/shared');
+    const patients = await pool.query(
+      `SELECT id FROM patients WHERE is_active = true`
+    );
+    const weekNumber = Math.ceil(
+      (new Date().getTime() - new Date(new Date().getFullYear(), 0, 1).getTime()) /
+        (7 * 24 * 60 * 60 * 1000)
+    );
+    for (const row of patients.rows) {
+      // Skip if they already have a scheduled session this week
+      const existing = await pool.query(
+        `SELECT id FROM triage_sessions WHERE patient_id = $1 AND status = 'in_progress' AND started_at > NOW() - INTERVAL '7 days'`,
+        [row.id]
+      );
+      if (!existing.rows.length) {
+        await pool.query(
+          `INSERT INTO triage_sessions (patient_id, status, language, chief_complaint, condition_category)
+           VALUES ($1, 'in_progress', 'en', 'Weekly automated check-in', 'general')`,
+          [row.id]
+        );
+      }
+    }
+    res.json({ triggered: patients.rows.length, week_number: weekNumber });
+  } catch (e) {
+    next(e);
+  }
+});
+
 export default router;
+

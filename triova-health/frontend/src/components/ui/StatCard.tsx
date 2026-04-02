@@ -4,11 +4,13 @@ export function StatCard({
   label,
   value,
   hint,
+  hintNode,
   icon,
 }: {
   label: string;
   value: ReactNode;
   hint?: string;
+  hintNode?: ReactNode;
   icon?: ReactNode;
 }) {
   return (
@@ -18,7 +20,9 @@ export function StatCard({
         {icon && <span className="text-triova-700">{icon}</span>}
       </div>
       <p className="text-2xl font-semibold text-slate-900">{value}</p>
-      {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
+      {hintNode
+        ? <div className="mt-1 text-xs">{hintNode}</div>
+        : hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
     </div>
   );
 }
