@@ -27,6 +27,7 @@ export function AppShell({ role, children }: { role: Role; children: ReactNode }
         { to: '/patient', label: 'Dashboard', active: location.pathname === '/patient' },
         { to: '/patient/book', label: 'Appointments', active: location.pathname.startsWith('/patient/book') },
         { to: '/patient/triage', label: 'Triage', active: location.pathname.startsWith('/patient/triage') },
+        { to: '/patient/medications', label: 'Medications', active: location.pathname.startsWith('/patient/medications') },
         { to: '/patient/records', label: 'Records', active: location.pathname.startsWith('/patient/records') },
       ];
     }

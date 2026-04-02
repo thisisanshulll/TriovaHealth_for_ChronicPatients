@@ -46,6 +46,7 @@ async function request<T>(method: RequestMethod, path: string, body?: unknown): 
 
 async function upload<T>(path: string, formData: FormData): Promise<{ data: T }> {
   const token = useAuthStore.getState().accessToken;
+  console.log('Upload request:', path, 'token exists:', !!token);
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(`/api${path}`, {
@@ -54,6 +55,7 @@ async function upload<T>(path: string, formData: FormData): Promise<{ data: T }>
     body: formData,
     credentials: 'include',
   });
+  console.log('Upload response:', res.status, res.statusText);
   const text = await res.text();
   const json = text ? (JSON.parse(text) as unknown) : {};
   if (!res.ok) throw new ApiError(parseMessage(json), res.status, json);

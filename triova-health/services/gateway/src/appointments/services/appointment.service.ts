@@ -3,6 +3,7 @@ import { hoursUntilAppointment } from '@triova/shared';
 import { runVoiceBooking } from '../agents/VoiceBookingAgent.js';
 import { emitToAppointment, emitToUser } from '../../socket-server.js';
 import { logger } from '@triova/shared';
+import { syncAppointmentToDoctorCalendar } from '../../calendar/google-calendar.service.js';
 
 async function notifyUser(
   userId: string,
@@ -88,13 +89,20 @@ export async function bookAppointment(input: {
     );
     await client.query('COMMIT');
     const appt = ins.rows[0];
-    const du = await pool.query(`SELECT user_id FROM doctors WHERE id = $1`, [input.doctor_id]);
+    const du = await pool.query(`SELECT user_id, first_name, last_name FROM doctors WHERE id = $1`, [input.doctor_id]);
+    const patientInfo = await pool.query(`SELECT first_name, last_name FROM patients WHERE id = $1`, [input.patientId]);
     if (du.rows[0]) {
       await notifyUser(
         du.rows[0].user_id,
         'New appointment',
         `Patient booked for ${input.date} ${input.time}`
       );
+      await syncAppointmentToDoctorCalendar(du.rows[0].user_id, {
+        patientName: `${patientInfo.rows[0]?.first_name} ${patientInfo.rows[0]?.last_name}`,
+        date: input.date,
+        time: input.time,
+        chiefComplaint: input.chief_complaint,
+      });
     }
     await notifyUser(input.patientUserId, 'Appointment confirmed', `Your visit is on ${input.date} at ${input.time}`);
     emitToAppointment(appt.id, 'queue_update', {

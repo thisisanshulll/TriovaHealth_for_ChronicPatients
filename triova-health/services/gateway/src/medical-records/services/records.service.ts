@@ -2,9 +2,9 @@ import { pool } from '@triova/shared';
 import { documentProcessingQueue } from '@triova/shared';
 import { saveMedicalDocument } from '../../lib/storage.js';
 import { chunkText } from '../rag/chunker.js';
-import { embedChunks, getQdrantAsync } from '../rag/MedicalRAG.js';
+import { getQdrantAsync } from '../rag/MedicalRAG.js';
 import { qdrantUpsert } from '../../lib/qdrant-http.js';
-import { getOpenAI } from '../../lib/openai.js';
+import { getOpenAI, withOpenAIRetry, getEmbeddingModel } from '../../lib/openai.js';
 import { randomUUID } from 'crypto';
 import type { Response } from 'express';
 import PDFDocument from 'pdfkit';
@@ -13,6 +13,48 @@ import { ocrImageBuffer } from '../processors/image-processor.js';
 import { extractMedicationsFromPrescription } from './medication-extractor.service.js';
 import { ragAnswer } from '../rag/MedicalRAG.js';
 import { emitToUser } from '../../socket-server.js';
+
+const LOCAL_EMBEDDING_DIM = 1536;
+
+function hashToken(token: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < token.length; i++) {
+    h ^= token.charCodeAt(i);
+    h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+  }
+  return h >>> 0;
+}
+
+function normalize(vec: number[]): number[] {
+  const norm = Math.sqrt(vec.reduce((sum, v) => sum + v * v, 0));
+  if (norm === 0) return vec;
+  return vec.map((v) => v / norm);
+}
+
+function localEmbedding(text: string): number[] {
+  const vec = new Array(LOCAL_EMBEDDING_DIM).fill(0);
+  const tokens = text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const source = tokens.length ? tokens : [text.slice(0, 2000).toLowerCase()];
+  for (const token of source) {
+    const idx = hashToken(token) % LOCAL_EMBEDDING_DIM;
+    vec[idx] += 1;
+  }
+  return normalize(vec);
+}
+
+async function embedChunks(chunks: string[]): Promise<number[][]> {
+  const openai = getOpenAI();
+  const model = getEmbeddingModel();
+  if (!openai || !model) {
+    return chunks.map((chunk) => localEmbedding(chunk));
+  }
+  try {
+    const res = await withOpenAIRetry(() => openai.embeddings.create({ model, input: chunks }));
+    return res.data.map((d) => d.embedding);
+  } catch {
+    return chunks.map((chunk) => localEmbedding(chunk));
+  }
+}
 import { logger } from '@triova/shared';
 
 export async function queueDocumentProcessing(documentId: string, patientId: string, fileUrl: string, documentType: string, mimeType: string) {
@@ -81,10 +123,9 @@ export async function processDocumentJob(data: {
     }
 
     const chunks = await chunkText(text);
-    const openai = getOpenAI();
     const qdrantReady = await getQdrantAsync();
-    if (openai && qdrantReady && chunks.length) {
-      const embeddings = await embedChunks(openai, chunks);
+    if (qdrantReady && chunks.length) {
+      const embeddings = await embedChunks(chunks);
       const points = chunks.map((chunk_text, i) => ({
         id: randomUUID(),
         vector: embeddings[i],

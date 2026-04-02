@@ -7,6 +7,7 @@ import DoctorDashboard from '@/pages/doctor/Dashboard';
 import BookAppointment from '@/pages/patient/BookAppointment';
 import Triage from '@/pages/patient/Triage';
 import MedicalRecords from '@/pages/patient/MedicalRecords';
+import MedicationReminders from '@/pages/patient/MedicationReminders';
 import PatientDetail from '@/pages/doctor/PatientDetail';
 import { DoctorLayout, PatientLayout } from '@/components/layout/RoleLayout';
 
@@ -22,6 +23,7 @@ export default function App() {
             <Route path="book" element={<BookAppointment />} />
             <Route path="triage" element={<Triage />} />
             <Route path="records" element={<MedicalRecords />} />
+            <Route path="medications" element={<MedicationReminders />} />
           </Route>
         </Route>
         <Route element={<ProtectedRoute role="doctor" />}>

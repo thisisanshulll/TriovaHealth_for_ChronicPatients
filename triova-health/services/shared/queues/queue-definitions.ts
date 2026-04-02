@@ -1,9 +1,18 @@
 import { Queue } from 'bullmq';
-import { redisConnection } from './redis-client.js';
+import { getRedisConnection } from './redis-client.js';
 
 const prefix = '{triova}';
 
-const conn = { connection: redisConnection };
+const getConnection = () => {
+  try {
+    const conn = getRedisConnection();
+    return conn;
+  } catch {
+    return null;
+  }
+};
+
+const conn = { connection: getConnection() };
 
 export const documentProcessingQueue = new Queue('document-processing', { ...conn, prefix });
 export const emailQueue = new Queue('email-notifications', { ...conn, prefix });
