@@ -41,7 +41,24 @@ const PORT = Number(process.env.PORT) || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-app.use(cors({ origin: FRONTEND_URL, credentials: true }));
+const allowedOrigins = [
+  FRONTEND_URL,
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:5174',
+  'http://127.0.0.1:5174'
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 app.use(express.json({ limit: '50mb' }));
 
 const uploadsRoot = path.join(process.cwd(), 'uploads');
@@ -112,8 +129,8 @@ if (process.env.ENABLE_CRON_JOBS !== 'false') {
        JOIN patient_medications pm ON pm.id = mr.medication_id
        JOIN patients p ON p.id = mr.patient_id
        WHERE mr.is_active = true AND pm.is_active = true
-       AND mr.reminder_time >= '${currentTime}:00'::time
-       AND mr.reminder_time < '${currentTime}:00'::time + interval '5 minutes'
+       AND mr.reminder_time >= '${currentTime}'::time
+       AND mr.reminder_time < '${currentTime}'::time + interval '5 minutes'
        AND (mr.last_sent_at IS NULL OR mr.last_sent_at < NOW() - interval '5 hours')`
     );
     
@@ -143,6 +160,6 @@ if (process.env.ENABLE_CRON_JOBS !== 'false') {
 
 startDocumentWorker();
 
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, '0.0.0.0', () => {
   logger.info(`TRIOVA gateway listening on ${PORT}`);
 });

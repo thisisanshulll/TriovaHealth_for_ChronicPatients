@@ -107,19 +107,26 @@ router.get('/google/callback', async (req, res) => {
   }
   try {
     const tokens = await getTokens(code);
+    // State param contains the userId passed during the connect flow
     const userId = (req.query.state as string) || (req.query.userId as string);
     if (userId) {
       await saveGoogleTokens(userId, tokens);
     }
-    res.redirect('http://localhost:5173/doctor?google_connected=true');
+    // Redirect to whichever frontend port is running
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    res.redirect(`${frontendUrl}/doctor?google_connected=true`);
   } catch (error) {
-    res.redirect('http://localhost:5173/doctor?google_connected=false');
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    res.redirect(`${frontendUrl}/doctor?google_connected=false`);
   }
 });
 
 router.post('/google/connect', authMiddleware, async (req: AuthedRequest, res, next) => {
   try {
-    const url = getAuthUrl();
+    // Generate auth URL; state is the user's ID so we can save tokens on callback
+    const baseUrl = getAuthUrl();
+    // Append user ID as state parameter for the callback to identify the user
+    const url = `${baseUrl}&state=${encodeURIComponent(req.user!.id)}`;
     res.json({ url, state: req.user!.id });
   } catch (e) {
     next(e);

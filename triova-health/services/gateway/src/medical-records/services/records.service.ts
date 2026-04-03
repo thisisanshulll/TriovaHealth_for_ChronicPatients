@@ -90,8 +90,12 @@ export async function createUpload(
     ]
   );
   const doc = ins.rows[0];
-  await queueDocumentProcessing(doc.id, patientId, fileUrl, document_type, mimeType);
-  return { document_id: doc.id, processing_status: 'queued' as const };
+  try {
+    await queueDocumentProcessing(doc.id, patientId, fileUrl, document_type, mimeType);
+  } catch {
+    // Queue may be unavailable (no Redis); background processing will handle it via setImmediate in the route
+  }
+  return { document_id: doc.id, processing_status: 'queued' as const, fileUrl };
 }
 
 export async function processDocumentJob(data: {

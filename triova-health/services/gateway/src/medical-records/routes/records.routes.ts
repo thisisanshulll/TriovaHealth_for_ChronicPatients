@@ -25,23 +25,52 @@ router.post('/upload', uploadRateLimit, upload.single('file'), async (req: Authe
     if (req.user!.role === 'patient' && req.user!.patientId !== patient_id) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    const allowed = (process.env.ALLOWED_MIME_TYPES || 'application/pdf,image/jpeg,image/png,image/heic')
+    // Broad MIME type support: pdf, any image format
+    const allowed = (
+      process.env.ALLOWED_MIME_TYPES ||
+      'application/pdf,image/jpeg,image/jpg,image/png,image/heic,image/webp,image/gif,image/bmp,image/tiff'
+    )
       .split(',')
       .map((s) => s.trim());
-    if (!allowed.includes(req.file.mimetype)) {
-      return res.status(400).json({ error: 'Invalid MIME type' });
+
+    // Accept octet-stream for files without proper MIME detection
+    const mimeOk =
+      allowed.includes(req.file.mimetype) ||
+      req.file.mimetype === 'application/octet-stream' ||
+      req.file.mimetype.startsWith('image/');
+
+    if (!mimeOk) {
+      return res.status(400).json({ error: `Invalid file type: ${req.file.mimetype}. Allowed: PDF and images.` });
     }
-    res.status(201).json(
-      await svc.createUpload(
-        patient_id,
-        req.user!.id,
-        req.body.document_type,
-        req.file.buffer,
-        req.file.originalname,
-        req.file.mimetype,
-        req.body.document_date
-      )
+    const result = await svc.createUpload(
+      patient_id,
+      req.user!.id,
+      req.body.document_type,
+      req.file.buffer,
+      req.file.originalname,
+      req.file.mimetype,
+      req.body.document_date
     );
+    res.status(201).json(result);
+
+    // Process document immediately in the background (no Redis dependency)
+    setImmediate(async () => {
+      try {
+        const { fileUrl } = result as unknown as { fileUrl?: string };
+        const docId = result.document_id;
+        if (docId) {
+          await svc.processDocumentJob({
+            documentId: docId,
+            patientId: patient_id,
+            fileUrl: fileUrl || '',
+            documentType: req.body.document_type || 'other',
+            mimeType: req.file!.mimetype,
+          });
+        }
+      } catch (e) {
+        // Background processing failure is non-fatal; document is still saved
+      }
+    });
   } catch (e) {
     next(e);
   }

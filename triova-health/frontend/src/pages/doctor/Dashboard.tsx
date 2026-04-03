@@ -213,10 +213,12 @@ export default function DoctorDashboard() {
 
   async function connectGoogleCalendar() {
     try {
-      const res = await api.get<{ url: string; state: string }>('/auth/google');
+      const res = await api.post<{ url: string; state: string }>('/auth/google/connect');
+      // Backend embeds the userId as state in the URL already
       window.location.href = res.data.url;
     } catch (error) {
       console.error('Failed to get Google auth URL:', error);
+      setMessage('Failed to initiate Google Calendar connection. Please try again.');
     }
   }
 

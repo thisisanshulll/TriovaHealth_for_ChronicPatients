@@ -39,17 +39,23 @@ router.get('/patient/:patient_id', async (req: AuthedRequest, res, next) => {
   }
 });
 
-router.post('/', roleMiddleware('doctor'), async (req: AuthedRequest, res, next) => {
+router.post('/', async (req: AuthedRequest, res, next) => {
   try {
     const { patient_id, medication_name, dosage, frequency, timing_instructions, duration_days, reminder_times } = req.body;
     
+    // Patients can only add meds for themselves; doctors can add for any patient
+    if (req.user!.role === 'patient' && req.user!.patientId !== patient_id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const source = req.user!.role === 'patient' ? 'prescription_scan' : 'manual';
     const endDate = duration_days ? `CURRENT_DATE + INTERVAL '${duration_days} days'` : 'NULL';
     
     const ins = await pool.query(
       `INSERT INTO patient_medications (patient_id, medication_name, dosage, frequency, timing_instructions, start_date, end_date, source, prescribed_by, is_active)
-       VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, ${endDate}, 'manual', $6, true) 
+       VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, ${endDate}, $6, $7, true) 
        RETURNING id`,
-      [patient_id, medication_name, dosage, frequency, timing_instructions, req.user!.id]
+      [patient_id, medication_name, dosage, frequency, timing_instructions, source, req.user!.id]
     );
     
     const medId = ins.rows[0].id;

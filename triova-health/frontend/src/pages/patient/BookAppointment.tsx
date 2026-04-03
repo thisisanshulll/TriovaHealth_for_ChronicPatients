@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Mic, MicOff, Sparkles } from 'lucide-react';
+import { CalendarCheck, Check, Mic, MicOff, RefreshCw, Sparkles } from 'lucide-react';
 import { ApiError, api } from '@/api/axios-instance';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { UrgencyBadge } from '@/components/ui/UrgencyBadge';
@@ -34,13 +34,23 @@ function toBase64(blob: Blob): Promise<string> {
   });
 }
 
+/** Returns next weekday (Mon-Fri) from today */
+function nextWeekday(): string {
+  const d = new Date();
+  const day = d.getDay();
+  if (day === 0) d.setDate(d.getDate() + 1); // Sunday → Monday
+  if (day === 6) d.setDate(d.getDate() + 2); // Saturday → Monday
+  return d.toISOString().slice(0, 10);
+}
+
 export default function BookAppointment() {
   const [doctorId, setDoctorId] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(nextWeekday());
   const [time, setTime] = useState('10:00:00');
   const [urgency, setUrgency] = useState<UrgencyLevel>('routine');
   const [chiefComplaint, setChiefComplaint] = useState('');
   const [bookingMessage, setBookingMessage] = useState('');
+  const [bookingSuccess, setBookingSuccess] = useState(false);
   const [voiceResult, setVoiceResult] = useState<VoiceBookingResponse | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -55,9 +65,16 @@ export default function BookAppointment() {
     },
   });
 
+  // Auto-select the first available doctor
+  useEffect(() => {
+    if (doctorsQuery.data && doctorsQuery.data.length > 0 && !doctorId) {
+      setDoctorId(doctorsQuery.data[0].id);
+    }
+  }, [doctorsQuery.data, doctorId]);
+
   const slotsQuery = useQuery({
     queryKey: ['available-slots', doctorId, date],
-    enabled: !!doctorId,
+    enabled: !!doctorId && !!date,
     queryFn: async () => {
       const res = await api.get<{ slots: Array<{ time: string; is_available: boolean }> }>(
         `/appointments/available-slots?doctor_id=${doctorId}&date=${date}`
@@ -82,8 +99,22 @@ export default function BookAppointment() {
     [doctorsQuery.data, doctorId]
   );
 
+  // Auto-select first available slot when slots load
+  useEffect(() => {
+    if (slotsQuery.data && slotsQuery.data.length > 0) {
+      const firstFree = slotsQuery.data.find((s) => s.is_available);
+      if (firstFree) setTime(firstFree.time);
+    }
+  }, [slotsQuery.data]);
+
   async function handleBook(): Promise<void> {
+    if (!doctorId) {
+      setBookingMessage('Please select a doctor first.');
+      setBookingSuccess(false);
+      return;
+    }
     setBookingMessage('');
+    setBookingSuccess(false);
     setIsSubmitting(true);
     try {
       const payload = {
@@ -92,12 +123,17 @@ export default function BookAppointment() {
         time,
         urgency,
         chief_complaint: chiefComplaint || 'General consultation',
+        booking_method: 'manual',
       };
       await api.post('/appointments/book', payload);
-      setBookingMessage(`Appointment confirmed for ${formatDate(date)} at ${formatTime(time)}.`);
+      setBookingSuccess(true);
+      setBookingMessage(`✅ Appointment confirmed for ${formatDate(date)} at ${formatTime(time)} with Dr. ${selectedDoctor?.last_name || ''}.`);
+      setChiefComplaint('');
+      await appointmentsQuery.refetch();
     } catch (error) {
-      const message = error instanceof ApiError ? error.message : 'Failed to book appointment';
-      setBookingMessage(message);
+      setBookingSuccess(false);
+      const msg = error instanceof ApiError ? error.message : 'Failed to book appointment';
+      setBookingMessage(`❌ ${msg}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -115,10 +151,10 @@ export default function BookAppointment() {
       }
       setDate(res.data.next_slot.date);
       setTime(res.data.next_slot.time);
-      setBookingMessage('Suggested slot applied.');
+      setBookingMessage('✅ Next available slot applied.');
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'Unable to fetch next slot';
-      setBookingMessage(message);
+      setBookingMessage(`❌ ${message}`);
     }
   }
 
@@ -149,7 +185,7 @@ export default function BookAppointment() {
       recorder.start();
       setIsRecording(true);
     } catch {
-      setBookingMessage('Microphone permission denied or unavailable.');
+      setBookingMessage('❌ Microphone permission denied or unavailable.');
     }
   }
 
@@ -158,10 +194,20 @@ export default function BookAppointment() {
     setIsRecording(false);
   }
 
+  const availableSlots = (slotsQuery.data || []).filter((s) => s.is_available);
+  const takenSlots = (slotsQuery.data || []).filter((s) => !s.is_available);
+
   return (
     <div className="grid gap-6 xl:grid-cols-3">
       <div className="space-y-6 xl:col-span-2">
         <SectionCard title="Book appointment" subtitle="Manual booking with live slot availability">
+          {doctorsQuery.isLoading && (
+            <p className="text-sm text-slate-500">Loading doctors...</p>
+          )}
+          {doctorsQuery.isError && (
+            <p className="text-sm text-red-500">Failed to load doctors. Please refresh the page.</p>
+          )}
+          
           <div className="grid gap-4 md:grid-cols-2">
             <label className="space-y-1 text-sm">
               <span className="font-medium text-slate-700">Doctor</span>
@@ -196,6 +242,7 @@ export default function BookAppointment() {
                 type="date"
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none transition focus:border-triova-500"
                 value={date}
+                min={new Date().toISOString().slice(0, 10)}
                 onChange={(event) => setDate(event.target.value)}
               />
             </label>
@@ -216,7 +263,7 @@ export default function BookAppointment() {
               rows={3}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none transition focus:border-triova-500"
               value={chiefComplaint}
-              placeholder="Describe your issue briefly"
+              placeholder="Describe your issue briefly (e.g. headache, fever, follow-up)"
               onChange={(event) => setChiefComplaint(event.target.value)}
             />
           </label>
@@ -225,21 +272,27 @@ export default function BookAppointment() {
               type="button"
               disabled={!doctorId}
               onClick={handleFindNextSlot}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
+              <RefreshCw size={14} />
               Find next available
             </button>
             <button
               type="button"
               disabled={!doctorId || isSubmitting}
               onClick={handleBook}
-              className="rounded-xl bg-triova-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-triova-900 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-xl bg-triova-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-triova-900 disabled:cursor-not-allowed disabled:opacity-50"
             >
+              <CalendarCheck size={14} />
               {isSubmitting ? 'Booking...' : 'Confirm booking'}
             </button>
             {selectedDoctor && <UrgencyBadge value={urgency} />}
           </div>
-          {bookingMessage && <p className="mt-3 text-sm text-slate-700">{bookingMessage}</p>}
+          {bookingMessage && (
+            <div className={`mt-3 rounded-xl px-4 py-3 text-sm font-medium ${bookingSuccess ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
+              {bookingMessage}
+            </div>
+          )}
         </SectionCard>
 
         <SectionCard
@@ -300,27 +353,42 @@ export default function BookAppointment() {
       </div>
 
       <div className="space-y-6">
-        <SectionCard title="Available slots" subtitle={selectedDoctor ? `Dr. ${selectedDoctor.first_name} ${selectedDoctor.last_name}` : 'Select a doctor'}>
+        <SectionCard title="Available slots" subtitle={selectedDoctor ? `Dr. ${selectedDoctor.first_name} ${selectedDoctor.last_name} · ${formatDate(date)}` : 'Select a doctor and date'}>
+          {slotsQuery.isLoading && <p className="text-sm text-slate-500">Loading slots...</p>}
+          {!slotsQuery.isLoading && availableSlots.length === 0 && doctorId && (
+            <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-sm text-amber-700">
+              No slots available on this date. Doctor works Mon–Fri. Try another weekday or click "Find next available".
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
-            {(slotsQuery.data || []).map((slot) => (
+            {availableSlots.map((slot) => (
               <button
                 key={slot.time}
                 type="button"
-                disabled={!slot.is_available}
                 onClick={() => setTime(slot.time)}
-                className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
-                  slot.is_available
-                    ? time === slot.time
-                      ? 'bg-triova-700 text-white'
-                      : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                    : 'cursor-not-allowed bg-slate-100 text-slate-400'
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
+                  time === slot.time
+                    ? 'bg-triova-700 text-white ring-2 ring-triova-700 ring-offset-1'
+                    : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
                 }`}
               >
                 {formatTime(slot.time)}
+                {time === slot.time && <Check size={10} className="ml-1 inline" />}
               </button>
             ))}
-            {!slotsQuery.data?.length && <p className="text-sm text-slate-500">No slots available for selected date.</p>}
           </div>
+          {takenSlots.length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs font-medium text-slate-400 mb-1">Taken slots</p>
+              <div className="flex flex-wrap gap-2">
+                {takenSlots.slice(0, 6).map((slot) => (
+                  <span key={slot.time} className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-400 line-through">
+                    {formatTime(slot.time)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </SectionCard>
 
         <SectionCard title="Upcoming visits" subtitle="Your next scheduled appointments">
@@ -333,12 +401,20 @@ export default function BookAppointment() {
                 <p className="text-xs text-slate-600">
                   Dr. {appointment.doctor_first_name} {appointment.doctor_last_name}
                 </p>
+                {appointment.chief_complaint && (
+                  <p className="mt-1 text-xs text-slate-500 line-clamp-1">{appointment.chief_complaint}</p>
+                )}
                 <div className="mt-2">
                   <UrgencyBadge value={appointment.urgency} />
                 </div>
               </div>
             ))}
-            {!appointmentsQuery.data?.length && <p className="text-sm text-slate-500">No upcoming visits.</p>}
+            {!appointmentsQuery.data?.length && (
+              <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-center">
+                <p className="text-sm text-slate-500">No upcoming visits.</p>
+                <p className="text-xs text-slate-400 mt-1">Book your first appointment above.</p>
+              </div>
+            )}
           </div>
         </SectionCard>
       </div>
