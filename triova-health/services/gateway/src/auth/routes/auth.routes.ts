@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware, loginRateLimit, validateBody, type AuthedRequest } from '@triova/shared';
 import * as auth from '../services/auth.service.js';
-import { getAuthUrl, getTokens, saveGoogleTokens, getGoogleTokens, addEventToGoogleCalendar, syncAppointmentToDoctorCalendar } from '../../calendar/google-calendar.service.js';
+import { getAuthUrl, getTokensAndProfile, saveGoogleTokens, getGoogleTokens, addEventToGoogleCalendar, syncAppointmentToDoctorCalendar } from '../../calendar/google-calendar.service.js';
 
 const router = Router();
 
@@ -106,16 +106,17 @@ router.get('/google/callback', async (req, res) => {
     return res.status(400).json({ error: 'No authorization code provided' });
   }
   try {
-    const tokens = await getTokens(code);
-    // State param contains the userId passed during the connect flow
+    const tokensAndProfile = await getTokensAndProfile(code);
     const userId = (req.query.state as string) || (req.query.userId as string);
+    console.log('Parsed userId from state:', userId, 'Tokens received?', !!tokensAndProfile);
     if (userId) {
-      await saveGoogleTokens(userId, tokens);
+      await saveGoogleTokens(userId, tokensAndProfile);
     }
     // Redirect to whichever frontend port is running
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     res.redirect(`${frontendUrl}/doctor?google_connected=true`);
   } catch (error) {
+    console.error('Google Callback Error:', error);
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     res.redirect(`${frontendUrl}/doctor?google_connected=false`);
   }
@@ -135,7 +136,11 @@ router.post('/google/connect', authMiddleware, async (req: AuthedRequest, res, n
 
 router.get('/google/status', authMiddleware, async (req: AuthedRequest, res) => {
   const tokens = await getGoogleTokens(req.user!.id);
-  res.json({ connected: !!tokens?.access_token });
+  res.json({ 
+    connected: !!tokens?.access_token, 
+    google_email: tokens?.google_email, 
+    google_picture: tokens?.google_picture 
+  });
 });
 
 router.post('/google/sync-appointment', authMiddleware, async (req: AuthedRequest, res, next) => {

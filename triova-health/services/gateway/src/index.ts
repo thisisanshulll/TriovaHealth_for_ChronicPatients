@@ -5,6 +5,14 @@ import path from 'path';
 import { createServer } from 'http';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoEnvPath = path.resolve(__dirname, '../../../.env');
+// Load repo-root env for workspace runs (`npm run dev -w @triova/gateway`).
+dotenv.config({ path: repoEnvPath });
+// Allow optional package-local overrides if present.
+dotenv.config();
+
 import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
 import { CronJob } from 'cron';
@@ -28,12 +36,7 @@ import doctorsRoutes from './doctors/routes/doctors.routes.js';
 import consultationsRoutes from './doctors/routes/consultations.routes.js';
 import medicationRoutes from './medications/routes/medication.routes.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoEnvPath = path.resolve(__dirname, '../../../.env');
-// Load repo-root env for workspace runs (`npm run dev -w @triova/gateway`).
-dotenv.config({ path: repoEnvPath });
-// Allow optional package-local overrides if present.
-dotenv.config();
+
 
 const app = express();
 const httpServer = createServer(app);

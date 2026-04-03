@@ -1,39 +1,52 @@
 import { google } from 'googleapis';
 import { pool } from '@triova/shared';
 
-const redirectUri = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/api/auth/google/callback';
-
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  redirectUri
-);
+export function getOAuth2Client() {
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || 'http://127.0.0.1:3000/api/auth/google/callback';
+  return new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    redirectUri
+  );
+}
 
 export function getAuthUrl(): string {
-  return oauth2Client.generateAuthUrl({
+  return getOAuth2Client().generateAuthUrl({
     access_type: 'offline',
-    scope: ['https://www.googleapis.com/auth/calendar.events'],
+    scope: [
+      'https://www.googleapis.com/auth/calendar.events',
+      'https://www.googleapis.com/auth/userinfo.profile',
+      'https://www.googleapis.com/auth/userinfo.email'
+    ],
     prompt: 'consent',
   });
 }
 
-export async function getTokens(code: string) {
-  const { tokens } = await oauth2Client.getToken(code);
-  return tokens;
+export async function getTokensAndProfile(code: string) {
+  const client = getOAuth2Client();
+  const { tokens } = await client.getToken(code);
+  client.setCredentials(tokens);
+  const oauth2 = google.oauth2({ auth: client, version: 'v2' });
+  const userInfo = await oauth2.userinfo.get();
+  return { tokens, userInfo: userInfo.data };
 }
 
-export async function saveGoogleTokens(userId: string, tokens: { access_token?: string | null; refresh_token?: string | null }) {
+export async function saveGoogleTokens(userId: string, data: { tokens: any, userInfo: any }) {
   await pool.query(
-    `INSERT INTO user_google_tokens (user_id, access_token, refresh_token)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (user_id) DO UPDATE SET access_token = COALESCE($2, access_token), refresh_token = COALESCE($3, refresh_token)`,
-    [userId, tokens.access_token || null, tokens.refresh_token || null]
+    `INSERT INTO user_google_tokens (user_id, access_token, refresh_token, google_email, google_picture)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (user_id) DO UPDATE SET 
+       access_token = COALESCE($2, user_google_tokens.access_token), 
+       refresh_token = COALESCE($3, user_google_tokens.refresh_token),
+       google_email = EXCLUDED.google_email,
+       google_picture = EXCLUDED.google_picture`,
+    [userId, data.tokens.access_token || null, data.tokens.refresh_token || null, data.userInfo.email || null, data.userInfo.picture || null]
   );
 }
 
-export async function getGoogleTokens(userId: string): Promise<{ access_token?: string; refresh_token?: string } | null> {
+export async function getGoogleTokens(userId: string): Promise<{ access_token?: string; refresh_token?: string; google_email?: string; google_picture?: string } | null> {
   const r = await pool.query(
-    `SELECT access_token, refresh_token FROM user_google_tokens WHERE user_id = $1`,
+    `SELECT access_token, refresh_token, google_email, google_picture FROM user_google_tokens WHERE user_id = $1`,
     [userId]
   );
   return r.rows[0] || null;
@@ -54,12 +67,13 @@ export async function addEventToGoogleCalendar(
     throw new Error('Google Calendar not connected for this user');
   }
 
-  oauth2Client.setCredentials({
+  const client = getOAuth2Client();
+  client.setCredentials({
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token || undefined,
   });
 
-  const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+  const calendar = google.calendar({ version: 'v3', auth: client });
 
   const event = {
     summary: eventDetails.summary,
@@ -101,7 +115,8 @@ export async function syncAppointmentToDoctorCalendar(
   }
 ) {
   try {
-    const startTime = new Date(`${appointmentDetails.date}T${appointmentDetails.time}:00`);
+    const timeStr = appointmentDetails.time.slice(0, 5);
+    const startTime = new Date(`${appointmentDetails.date}T${timeStr}:00`);
     const endTime = new Date(startTime.getTime() + 30 * 60 * 1000);
 
     await addEventToGoogleCalendar(doctorUserId, {
@@ -112,8 +127,8 @@ export async function syncAppointmentToDoctorCalendar(
     });
 
     return { synced: true };
-  } catch (error) {
-    console.error('Failed to sync to Google Calendar:', error);
+  } catch (error: any) {
+    console.error('Failed to sync to Google Calendar:', error?.response?.data || error);
     return { synced: false, error: 'Failed to sync to Google Calendar' };
   }
 }

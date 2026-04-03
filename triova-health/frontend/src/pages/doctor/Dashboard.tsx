@@ -195,19 +195,23 @@ export default function DoctorDashboard() {
 
   const criticalAlerts = (dashboardQuery.data?.recent_alerts || []).filter((alert) => alert.severity === 'critical');
 
-  const [googleCalConnected, setGoogleCalConnected] = useState(false);
+  const [googleStatus, setGoogleStatus] = useState<{ connected: boolean; email?: string; picture?: string }>({ connected: false });
 
   const googleStatusQuery = useQuery({
     queryKey: ['google-calendar-status'],
     queryFn: async () => {
-      const res = await api.get<{ connected: boolean }>('/auth/google/status');
-      return res.data.connected;
+      const res = await api.get<{ connected: boolean; google_email?: string; google_picture?: string }>('/auth/google/status');
+      return { 
+        connected: res.data.connected,
+        email: res.data.google_email,
+        picture: res.data.google_picture
+      };
     },
   });
 
   useMemo(() => {
     if (googleStatusQuery.data !== undefined) {
-      setGoogleCalConnected(googleStatusQuery.data);
+      setGoogleStatus(googleStatusQuery.data);
     }
   }, [googleStatusQuery.data]);
 
@@ -351,14 +355,30 @@ export default function DoctorDashboard() {
           icon={<AlertTriangle size={18} />}
           hint="Across all assigned patients"
         />
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-xs font-semibold text-slate-500">Google Calendar</p>
-          <p className="mt-1 text-sm text-slate-700">{googleCalConnected ? 'Connected' : 'Not connected'}</p>
-          {!googleCalConnected && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 flex flex-col justify-between">
+          <div>
+            <p className="text-xs font-semibold text-slate-500">Google Calendar</p>
+            {googleStatus.connected ? (
+              <div className="mt-2 flex items-center gap-3">
+                {googleStatus.picture ? (
+                  <img src={googleStatus.picture} alt="DP" referrerPolicy="no-referrer" className="h-8 w-8 rounded-full shadow-sm border border-slate-100" />
+                ) : (
+                  <div className="h-8 w-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs">G</div>
+                )}
+                <div>
+                  <p className="text-sm font-bold text-slate-800">Connected</p>
+                  {googleStatus.email && <p className="text-[10px] text-slate-500 truncate max-w-[100px]">{googleStatus.email}</p>}
+                </div>
+              </div>
+            ) : (
+              <p className="mt-1 text-sm text-slate-700">Not connected</p>
+            )}
+          </div>
+          {!googleStatus.connected && (
             <button
               type="button"
               onClick={connectGoogleCalendar}
-              className="mt-2 inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+              className="mt-2 inline-flex self-start items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
             >
               <ExternalLink size={12} />
               Connect
